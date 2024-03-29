@@ -3,96 +3,486 @@ import java.awt.*;
 import java.awt.image.*;
 import java.io.*;
 import javax.swing.*;
+import java.util.Timer;
+import java.util.TimerTask;
 
 
 public class ImageDisplay {
 
-	JFrame frame;
-	JLabel lbIm1;
-	BufferedImage imgOne;
+    JFrame frame;
+    JLabel lbIm1;
+    BufferedImage imgOne;
 
-	// Modify the height and width values here to read and display an image with
-  	// different dimensions. 
-	int width = 512;
-	int height = 512;
+    // Modify the height and width values here to read and display an image with
+    // different dimensions.
+    int width = 512;
+    int height = 512;
 
-	/** Read Image RGB
-	 *  Reads the image of given width and height at the given imgPath into the provided BufferedImage.
-	 */
-	private void readImageRGB(int width, int height, String imgPath, BufferedImage img)
-	{
-		try
-		{
-			int frameLength = width*height*3;
+    private double[][][][] colorBlocks;
+    private int currentBlockX = 0;
+    private int currentBlockY = 0;
+    private BufferedImage displayImage;
 
-			File file = new File(imgPath);
-			RandomAccessFile raf = new RandomAccessFile(file, "r");
-			raf.seek(0);
+    //Input parameters
+    int quantizationLevel;
+    String deliveryMode;
+    int latency;
 
-			long len = frameLength;
-			byte[] bytes = new byte[(int) len];
+    //Mode 2
+    private int currentCoefficientIndex = 0;
+    private int currentBitDepth = 1;
 
-			raf.read(bytes);
+    //Precompute values
+    private double[][] cosValues = new double[8][8];
+    private void precomputeCosValues() {
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                cosValues[i][j] = Math.cos((2 * i + 1) * j * Math.PI / 16);
 
-			int ind = 0;
-			for(int y = 0; y < height; y++)
-			{
-				for(int x = 0; x < width; x++)
-				{
-					byte a = 0;
-					byte r = bytes[ind];
-					byte g = bytes[ind+height*width];
-					byte b = bytes[ind+height*width*2]; 
+            }
+        }
+    }
 
-					int pix = 0xff000000 | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
-					//int pix = ((a << 24) + (r << 16) + (g << 8) + b);
-					img.setRGB(x,y,pix);
-					ind++;
-				}
-			}
-		}
-		catch (FileNotFoundException e) 
-		{
-			e.printStackTrace();
-		} 
-		catch (IOException e) 
-		{
-			e.printStackTrace();
-		}
-	}
+    /**
+     * Read Image RGB
+     * Reads the image of given width and height at the given imgPath into the provided BufferedImage.
+     */
+    private void readImageRGB(int width, int height, String imgPath, BufferedImage img) {
+        try {
+            int frameLength = width * height * 3;
 
-	public void showIms(String[] args){
+            File file = new File(imgPath);
+            RandomAccessFile raf = new RandomAccessFile(file, "r");
+            raf.seek(0);
 
-		// Read in the specified image
-		imgOne = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-		readImageRGB(width, height, args[0], imgOne);
+            long len = frameLength;
+            byte[] bytes = new byte[(int) len];
 
-		// Use label to display the image
-		frame = new JFrame();
-		GridBagLayout gLayout = new GridBagLayout();
-		frame.getContentPane().setLayout(gLayout);
+            raf.read(bytes);
 
-		lbIm1 = new JLabel(new ImageIcon(imgOne));
+            int ind = 0;
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    byte a = 0;
+                    byte r = bytes[ind];
+                    byte g = bytes[ind + height * width];
+                    byte b = bytes[ind + height * width * 2];
 
-		GridBagConstraints c = new GridBagConstraints();
-		c.fill = GridBagConstraints.HORIZONTAL;
-		c.anchor = GridBagConstraints.CENTER;
-		c.weightx = 0.5;
-		c.gridx = 0;
-		c.gridy = 0;
+                    int pix = 0xff000000 | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
+                    //int pix = ((a << 24) + (r << 16) + (g << 8) + b);
+                    img.setRGB(x, y, pix);
+                    ind++;
+                }
+            }
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
-		c.fill = GridBagConstraints.HORIZONTAL;
-		c.gridx = 0;
-		c.gridy = 1;
-		frame.getContentPane().add(lbIm1, c);
+    public void showIms(String[] args) {
 
-		frame.pack();
-		frame.setVisible(true);
-	}
+        // Read in the specified image
+        imgOne = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        displayImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        precomputeCosValues();
+        readImageRGB(width, height, args[0], imgOne);
 
-	public static void main(String[] args) {
-		ImageDisplay ren = new ImageDisplay();
-		ren.showIms(args);
-	}
+        // Use label to display the image
+        frame = new JFrame();
+        GridBagLayout gLayout = new GridBagLayout();
+        frame.getContentPane().setLayout(gLayout);
+
+        lbIm1 = new JLabel(new ImageIcon(displayImage));
+
+        GridBagConstraints c = new GridBagConstraints();
+        c.anchor = GridBagConstraints.CENTER;
+        c.weightx = 0.5;
+
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.gridx = 0;
+        c.gridy = 1;
+        frame.getContentPane().add(lbIm1, c);
+
+        frame.pack();
+        frame.setVisible(true);
+
+        //Input parameters
+        quantizationLevel = Integer.parseInt(args[1]);
+        deliveryMode = args[2];
+        latency = Integer.parseInt(args[3]);
+
+        //Encode
+        colorBlocks = divideImageIntoColorBlocks(imgOne, quantizationLevel);
+
+        //Decode and display
+        displayBasedOnDeliveryMode();
+    }
+
+    private void displayBasedOnDeliveryMode() {
+        switch (deliveryMode) {
+            case "1":
+                displaySequentialBlocks();
+                break;
+            case "2":
+                displayProgressiveBlocks();
+                break;
+            case "3":
+                displayProgressiveBitWiseBlocks();
+                break;
+            default:
+                System.out.println("Invalid delivery mode selected.");
+                break;
+        }
+    }
+
+    // New method to initialize and start the block display sequence
+    private void displaySequentialBlocks() {
+        Timer timer = new Timer();
+
+        timer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                if (currentBlockY < colorBlocks[0].length) {
+                    if (currentBlockX < colorBlocks[0][currentBlockY].length) {
+                        // Extract the current block for each color channel
+                        double[][] blockR = new double[8][8];
+                        double[][] blockG = new double[8][8];
+                        double[][] blockB = new double[8][8];
+                        for (int i = 0; i < 64; i++) {
+                            blockR[i / 8][i % 8] = colorBlocks[0][currentBlockY][currentBlockX][i];
+                            blockG[i / 8][i % 8] = colorBlocks[1][currentBlockY][currentBlockX][i];
+                            blockB[i / 8][i % 8] = colorBlocks[2][currentBlockY][currentBlockX][i];
+                        }
+
+                        // Process the blocks for each color channel
+                        decodeBlock(blockR, quantizationLevel);
+                        decodeBlock(blockG, quantizationLevel);
+                        decodeBlock(blockB, quantizationLevel);
+
+                        // Draw the processed blocks onto the display image
+                        drawSequentialBlock(blockR, blockG, blockB, currentBlockX, currentBlockY);
+                        lbIm1.setIcon(new ImageIcon(displayImage));
+                        frame.repaint();
+                        currentBlockX++;
+                    } else {
+                        currentBlockX = 0;
+                        currentBlockY++;
+                    }
+                } else {
+                    // Cancel the timer when all blocks have been displayed
+                    timer.cancel();
+                }
+            }
+        }, 0, latency); // Schedule the task with 0 initial delay and 1 second between tasks
+    }
+
+
+    private void displayProgressiveBlocks() {
+        // ... initialize displayImage and timer
+        Timer timer = new Timer();
+
+        timer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                // Decode and display using increasing number of coefficients
+                for (int by = 0; by < colorBlocks[0].length; by++) {
+                    for (int bx = 0; bx < colorBlocks[0][by].length; bx++) {
+                        double[][] blockR = extractBlock(colorBlocks[0], bx, by);
+                        double[][] blockG = extractBlock(colorBlocks[1], bx, by);
+                        double[][] blockB = extractBlock(colorBlocks[2], bx, by);
+
+                        processAndDisplayBlock(blockR, blockG, blockB, bx, by, currentCoefficientIndex);
+                    }
+                }
+
+                lbIm1.setIcon(new ImageIcon(displayImage));
+                frame.repaint();
+
+                currentCoefficientIndex++;
+                if (currentCoefficientIndex > 63) { // Finished all coefficients
+                    timer.cancel();
+                }
+            }
+        }, 0, latency);
+    }
+
+    private double[][] extractBlock(double[][][] blocks, int bx, int by) {
+        double[][] block = new double[8][8];
+        for (int i = 0; i < 64; i++) {
+            block[i / 8][i % 8] = blocks[by][bx][i];
+        }
+        return block;
+    }
+
+    private void processAndDisplayBlock(double[][] blockR, double[][] blockG, double[][] blockB,
+                                        int blockX, int blockY, int coeffIndex) {
+        //Dequantize first
+        dequantizeBlock(blockR, quantizationLevel);
+        dequantizeBlock(blockG, quantizationLevel);
+        dequantizeBlock(blockB, quantizationLevel);
+
+        // Set coefficients after the current index to zero
+        zeroOutCoefficientsAfterIndex(blockR, coeffIndex);
+        zeroOutCoefficientsAfterIndex(blockG, coeffIndex);
+        zeroOutCoefficientsAfterIndex(blockB, coeffIndex);
+
+        // Apply IDCT
+        applyIDCTToBlock(blockR);
+        applyIDCTToBlock(blockG);
+        applyIDCTToBlock(blockB);
+
+        // Draw the processed blocks onto the display image
+        drawSequentialBlock(blockR, blockG, blockB, blockX, blockY);
+    }
+
+    private void zeroOutCoefficientsAfterIndex(double[][] block, int index) {
+        // ZigZag Order for a 8x8 Block
+        int[][] zigZagOrder = {
+                { 0, 1, 5, 6, 14, 15, 27, 28},
+                { 2, 4, 7, 13, 16, 26, 29, 42},
+                { 3, 8, 12, 17, 25, 30, 41, 43},
+                { 9, 11, 18, 24, 31, 40, 44, 53},
+                {10, 19, 23, 32, 39, 45, 52, 54},
+                {20, 22, 33, 38, 46, 51, 55, 60},
+                {21, 34, 37, 47, 50, 56, 59, 61},
+                {35, 36, 48, 49, 57, 58, 62, 63}
+        };
+
+        for (int i = index + 1; i < 64; i++) {
+            // Convert the ZigZag index to x and y coordinates
+            int x = -1, y = -1;
+            search:
+            for (int row = 0; row < zigZagOrder.length; row++) {
+                for (int col = 0; col < zigZagOrder[row].length; col++) {
+                    if (zigZagOrder[row][col] == i) {
+                        x = row;
+                        y = col;
+                        break search;
+                    }
+                }
+            }
+
+            // If the coordinate is found, zero out the coefficient
+            if (x != -1 && y != -1) {
+                block[x][y] = 0;
+            }
+        }
+    }
+
+
+    private void displayProgressiveBitWiseBlocks() {
+        Timer timer = new Timer();
+        timer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                // Iterate over all blocks
+                for (int by = 0; by < colorBlocks[0].length; by++) {
+                    for (int bx = 0; bx < colorBlocks[0][by].length; bx++) {
+                        double[][] blockR = extractBlock(colorBlocks[0], bx, by);
+                        double[][] blockG = extractBlock(colorBlocks[1], bx, by);
+                        double[][] blockB = extractBlock(colorBlocks[2], bx, by);
+
+                        // Process the blocks with the current bit depth
+                        processAndDisplayBlockBitwise(blockR, blockG, blockB, bx, by, currentBitDepth);
+                    }
+                }
+
+                lbIm1.setIcon(new ImageIcon(displayImage));
+                frame.repaint();
+
+                currentBitDepth++;
+                if (currentBitDepth > 8) { // Assuming 8-bit depth per channel
+                    timer.cancel();
+                }
+            }
+        }, 0, latency);
+    }
+
+    private void processAndDisplayBlockBitwise(double[][] blockR, double[][] blockG, double[][] blockB,
+                                               int blockX, int blockY, int bitDepth) {
+        // First, dequantize
+        dequantizeBlock(blockR, quantizationLevel);
+        dequantizeBlock(blockG, quantizationLevel);
+        dequantizeBlock(blockB, quantizationLevel);
+
+        // Modify each block for the current bit depth
+        modifyBlockForBitDepth(blockR, bitDepth);
+        modifyBlockForBitDepth(blockG, bitDepth);
+        modifyBlockForBitDepth(blockB, bitDepth);
+
+        // Apply IDCT
+        applyIDCTToBlock(blockR);
+        applyIDCTToBlock(blockG);
+        applyIDCTToBlock(blockB);
+
+
+        // Draw the block
+        drawSequentialBlock(blockR, blockG, blockB, blockX, blockY);
+    }
+
+    private void modifyBlockForBitDepth(double[][] block, int bitDepth) {
+        for (int i = 0; i < block.length; i++) {
+            for (int j = 0; j < block[i].length; j++) {
+                block[i][j] = approximateCoefficient(block[i][j], bitDepth);
+            }
+        }
+    }
+
+    private double approximateCoefficient(double value, int bitDepth) {
+        // Calculate the number of levels based on the current bit depth
+        // For each additional bit depth, we double the number of levels (2^n).
+        int levels = (int) Math.pow(2, bitDepth);
+        double maxCoefficientValue = 2048.0; // Example max value for scaling; adjust based on your coefficients' range
+        double stepSize = maxCoefficientValue / levels;
+
+        // Quantize the value based on the current step size
+        // This simulates the effect of increasing precision with more "significant bits"
+        double quantizedValue = Math.round(value / stepSize) * stepSize;
+
+        return quantizedValue;
+    }
+
+
+
+    // Method to process the block with dequantization and IDCT
+    private void decodeBlock(double[][] block, int quantizationLevel) {
+        dequantizeBlock(block, quantizationLevel);
+        applyIDCTToBlock(block);
+    }
+
+    //Method do draw a given decoded block
+    private void drawSequentialBlock(double[][] blockR, double[][] blockG, double[][] blockB, int blockX, int blockY) {
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 8; x++) {
+                // Ensure the pixel value is within the 0-255 range after processing
+                int red = (int) Math.min(Math.max(blockR[y][x], 0), 255);
+                int green = (int) Math.min(Math.max(blockG[y][x], 0), 255);
+                int blue = (int) Math.min(Math.max(blockB[y][x], 0), 255);
+
+                // Combine the RGB values into a single integer
+                int rgb = (red << 16) | (green << 8) | blue;
+                displayImage.setRGB(blockX * 8 + x, blockY * 8 + y, rgb);
+            }
+        }
+    }
+
+    // Method to divide the image into 8x8 blocks for each color channel
+    private double[][][][] divideImageIntoColorBlocks(BufferedImage img, int quantizationLevel) {
+        int blocksX = img.getWidth() / 8;
+        int blocksY = img.getHeight() / 8;
+        double[][][][] colorBlocks = new double[3][blocksY][blocksX][64]; // For R, G, and B
+
+        for (int by = 0; by < blocksY; by++) {
+            for (int bx = 0; bx < blocksX; bx++) {
+                for (int y = 0; y < 8; y++) {
+                    for (int x = 0; x < 8; x++) {
+                        int pixel = img.getRGB(bx * 8 + x, by * 8 + y);
+                        colorBlocks[0][by][bx][y * 8 + x] = ((pixel >> 16) & 0xff); // Red channel
+                        colorBlocks[1][by][bx][y * 8 + x] = ((pixel >> 8) & 0xff);  // Green channel
+                        colorBlocks[2][by][bx][y * 8 + x] = (pixel & 0xff);        // Blue channel
+                    }
+                }
+
+                // Apply DCT and Quantization to each block for each color channel
+                for (int i = 0; i < 3; i++) { // For R, G, and B channels
+                    double[][] block = new double[8][8];
+                    for (int j = 0; j < 64; j++) {
+                        block[j / 8][j % 8] = colorBlocks[i][by][bx][j];
+                    }
+
+                    applyDCTToBlock(block);
+                    quantizeBlock(block, quantizationLevel);
+
+                    // Store the quantized block back into the colorBlocks array
+                    for (int j = 0; j < 64; j++) {
+                        colorBlocks[i][by][bx][j] = block[j / 8][j % 8];
+                    }
+                }
+            }
+        }
+        return colorBlocks;
+    }
+
+    // DCT transformation for a block
+    private void applyDCTToBlock(double[][] block) {
+        int size = 8; // Block size for DCT
+        double[][] temp = new double[size][size];
+
+        for (int u = 0; u < size; u++) {
+            for (int v = 0; v < size; v++) {
+                double sum = 0.0;
+                for (int x = 0; x < size; x++) {
+                    for (int y = 0; y < size; y++) {
+                        sum += block[x][y] *
+                                Math.cos((2 * x + 1) * u * Math.PI / (2 * size)) *
+                                Math.cos((2 * y + 1) * v * Math.PI / (2 * size));
+                    }
+                }
+                double alphaU = (u == 0) ? 1.0 / Math.sqrt(2) : 1.0;
+                double alphaV = (v == 0) ? 1.0 / Math.sqrt(2) : 1.0;
+                temp[u][v] = 0.25 * alphaU * alphaV * sum;
+            }
+        }
+
+        // Copy the transformed block back to the original block array
+        for (int i = 0; i < size; i++) {
+            System.arraycopy(temp[i], 0, block[i], 0, size);
+        }
+    }
+
+    // Method to quantize a block using a uniform quantization table
+    private void quantizeBlock(double[][] block, int quantizationLevel) {
+        int quantizationFactor = (int) Math.pow(2, quantizationLevel);
+        for (int u = 0; u < block.length; u++) {
+            for (int v = 0; v < block[u].length; v++) {
+                block[u][v] = Math.round(block[u][v] / quantizationFactor);
+            }
+        }
+    }
+
+    // Method to dequantize a block using a uniform quantization level
+    private void dequantizeBlock(double[][] block, int quantizationLevel) {
+        int quantizationFactor = (int) Math.pow(2, quantizationLevel);
+        for (int u = 0; u < block.length; u++) {
+            for (int v = 0; v < block[u].length; v++) {
+                block[u][v] *= quantizationFactor;
+            }
+        }
+    }
+
+    // Method to apply IDCT to a block (8x8)
+    private void applyIDCTToBlock(double[][] block) {
+        int size = 8;
+        double[][] temp = new double[size][size];
+        double cu, cv, sum;
+
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                sum = 0.0;
+                for (int u = 0; u < size; u++) {
+                    for (int v = 0; v < size; v++) {
+                        cu = (u == 0) ? 1 / Math.sqrt(2) : 1.0;
+                        cv = (v == 0) ? 1 / Math.sqrt(2) : 1.0;
+                        sum += cu * cv * block[u][v] *
+                                cosValues[x][u] *
+                                cosValues[y][v];
+                    }
+                }
+                temp[x][y] = sum / 4;
+            }
+        }
+
+        // Copy the transformed block back to the original block array
+        for (int i = 0; i < size; i++) {
+            System.arraycopy(temp[i], 0, block[i], 0, size);
+        }
+    }
+
+    public static void main(String[] args) {
+        ImageDisplay ren = new ImageDisplay();
+        ren.showIms(args);
+    }
 
 }
