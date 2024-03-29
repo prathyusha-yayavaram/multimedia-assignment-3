@@ -11,6 +11,7 @@ public class ImageDisplay {
 
     JFrame frame;
     JLabel lbIm1;
+    JLabel lbOriginal;
     BufferedImage imgOne;
 
     // Modify the height and width values here to read and display an image with
@@ -86,15 +87,15 @@ public class ImageDisplay {
         // Read in the specified image
         imgOne = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         displayImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-        precomputeCosValues();
         readImageRGB(width, height, args[0], imgOne);
 
         // Use label to display the image
         frame = new JFrame();
-        GridBagLayout gLayout = new GridBagLayout();
+        GridLayout gLayout = new GridLayout(1, 2);
         frame.getContentPane().setLayout(gLayout);
 
         lbIm1 = new JLabel(new ImageIcon(displayImage));
+        lbOriginal = new JLabel(new ImageIcon(imgOne));
 
         GridBagConstraints c = new GridBagConstraints();
         c.anchor = GridBagConstraints.CENTER;
@@ -103,6 +104,8 @@ public class ImageDisplay {
         c.fill = GridBagConstraints.HORIZONTAL;
         c.gridx = 0;
         c.gridy = 1;
+
+        frame.getContentPane().add(lbOriginal, c);
         frame.getContentPane().add(lbIm1, c);
 
         frame.pack();
@@ -112,15 +115,19 @@ public class ImageDisplay {
         quantizationLevel = Integer.parseInt(args[1]);
         deliveryMode = args[2];
         latency = Integer.parseInt(args[3]);
+        if(latency == 0) latency++; //Giving 1 millisecond when latency is 0 as the timer expects positive integer
+
+        //Precompute
+        precomputeCosValues();
 
         //Encode
-        colorBlocks = divideImageIntoColorBlocks(imgOne, quantizationLevel);
+        encodeImage(imgOne, quantizationLevel);
 
         //Decode and display
-        displayBasedOnDeliveryMode();
+        decodeAndDisplayBasedOnDeliveryMode();
     }
 
-    private void displayBasedOnDeliveryMode() {
+    private void decodeAndDisplayBasedOnDeliveryMode() {
         switch (deliveryMode) {
             case "1":
                 displaySequentialBlocks();
@@ -156,13 +163,20 @@ public class ImageDisplay {
                             blockB[i / 8][i % 8] = colorBlocks[2][currentBlockY][currentBlockX][i];
                         }
 
-                        // Process the blocks for each color channel
-                        decodeBlock(blockR, quantizationLevel);
-                        decodeBlock(blockG, quantizationLevel);
-                        decodeBlock(blockB, quantizationLevel);
+                        //Dequantize blocks
+                        dequantizeBlock(blockR);
+                        dequantizeBlock(blockG);
+                        dequantizeBlock(blockB);
+
+                        // Apply IDCT
+                        applyIDCTToBlock(blockR);
+                        applyIDCTToBlock(blockG);
+                        applyIDCTToBlock(blockB);
 
                         // Draw the processed blocks onto the display image
-                        drawSequentialBlock(blockR, blockG, blockB, currentBlockX, currentBlockY);
+                        drawBlock(blockR, blockG, blockB, currentBlockX, currentBlockY);
+
+                        //Display block-wise
                         lbIm1.setIcon(new ImageIcon(displayImage));
                         frame.repaint();
                         currentBlockX++;
@@ -175,12 +189,11 @@ public class ImageDisplay {
                     timer.cancel();
                 }
             }
-        }, 0, latency); // Schedule the task with 0 initial delay and 1 second between tasks
+        }, 0, latency);
     }
 
 
     private void displayProgressiveBlocks() {
-        // ... initialize displayImage and timer
         Timer timer = new Timer();
 
         timer.scheduleAtFixedRate(new TimerTask() {
@@ -192,7 +205,6 @@ public class ImageDisplay {
                         double[][] blockR = extractBlock(colorBlocks[0], bx, by);
                         double[][] blockG = extractBlock(colorBlocks[1], bx, by);
                         double[][] blockB = extractBlock(colorBlocks[2], bx, by);
-
                         processAndDisplayBlock(blockR, blockG, blockB, bx, by, currentCoefficientIndex);
                     }
                 }
@@ -219,9 +231,9 @@ public class ImageDisplay {
     private void processAndDisplayBlock(double[][] blockR, double[][] blockG, double[][] blockB,
                                         int blockX, int blockY, int coeffIndex) {
         //Dequantize first
-        dequantizeBlock(blockR, quantizationLevel);
-        dequantizeBlock(blockG, quantizationLevel);
-        dequantizeBlock(blockB, quantizationLevel);
+        dequantizeBlock(blockR);
+        dequantizeBlock(blockG);
+        dequantizeBlock(blockB);
 
         // Set coefficients after the current index to zero
         zeroOutCoefficientsAfterIndex(blockR, coeffIndex);
@@ -234,7 +246,7 @@ public class ImageDisplay {
         applyIDCTToBlock(blockB);
 
         // Draw the processed blocks onto the display image
-        drawSequentialBlock(blockR, blockG, blockB, blockX, blockY);
+        drawBlock(blockR, blockG, blockB, blockX, blockY);
     }
 
     private void zeroOutCoefficientsAfterIndex(double[][] block, int index) {
@@ -293,7 +305,7 @@ public class ImageDisplay {
                 frame.repaint();
 
                 currentBitDepth++;
-                if (currentBitDepth > 8) { // Assuming 8-bit depth per channel
+                if (currentBitDepth > 8) {
                     timer.cancel();
                 }
             }
@@ -303,9 +315,9 @@ public class ImageDisplay {
     private void processAndDisplayBlockBitwise(double[][] blockR, double[][] blockG, double[][] blockB,
                                                int blockX, int blockY, int bitDepth) {
         // First, dequantize
-        dequantizeBlock(blockR, quantizationLevel);
-        dequantizeBlock(blockG, quantizationLevel);
-        dequantizeBlock(blockB, quantizationLevel);
+        dequantizeBlock(blockR);
+        dequantizeBlock(blockG);
+        dequantizeBlock(blockB);
 
         // Modify each block for the current bit depth
         modifyBlockForBitDepth(blockR, bitDepth);
@@ -317,9 +329,8 @@ public class ImageDisplay {
         applyIDCTToBlock(blockG);
         applyIDCTToBlock(blockB);
 
-
         // Draw the block
-        drawSequentialBlock(blockR, blockG, blockB, blockX, blockY);
+        drawBlock(blockR, blockG, blockB, blockX, blockY);
     }
 
     private void modifyBlockForBitDepth(double[][] block, int bitDepth) {
@@ -330,30 +341,19 @@ public class ImageDisplay {
         }
     }
 
+    //TODO: Check if this is right way
     private double approximateCoefficient(double value, int bitDepth) {
-        // Calculate the number of levels based on the current bit depth
-        // For each additional bit depth, we double the number of levels (2^n).
         int levels = (int) Math.pow(2, bitDepth);
-        double maxCoefficientValue = 2048.0; // Example max value for scaling; adjust based on your coefficients' range
+        double maxCoefficientValue = 2048.0;
         double stepSize = maxCoefficientValue / levels;
 
-        // Quantize the value based on the current step size
-        // This simulates the effect of increasing precision with more "significant bits"
         double quantizedValue = Math.round(value / stepSize) * stepSize;
 
         return quantizedValue;
     }
 
-
-
-    // Method to process the block with dequantization and IDCT
-    private void decodeBlock(double[][] block, int quantizationLevel) {
-        dequantizeBlock(block, quantizationLevel);
-        applyIDCTToBlock(block);
-    }
-
     //Method do draw a given decoded block
-    private void drawSequentialBlock(double[][] blockR, double[][] blockG, double[][] blockB, int blockX, int blockY) {
+    private void drawBlock(double[][] blockR, double[][] blockG, double[][] blockB, int blockX, int blockY) {
         for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 8; x++) {
                 // Ensure the pixel value is within the 0-255 range after processing
@@ -369,19 +369,19 @@ public class ImageDisplay {
     }
 
     // Method to divide the image into 8x8 blocks for each color channel
-    private double[][][][] divideImageIntoColorBlocks(BufferedImage img, int quantizationLevel) {
+    private void encodeImage(BufferedImage img, int quantizationLevel) {
         int blocksX = img.getWidth() / 8;
         int blocksY = img.getHeight() / 8;
-        double[][][][] colorBlocks = new double[3][blocksY][blocksX][64]; // For R, G, and B
+        colorBlocks = new double[3][blocksY][blocksX][64];
 
         for (int by = 0; by < blocksY; by++) {
             for (int bx = 0; bx < blocksX; bx++) {
                 for (int y = 0; y < 8; y++) {
                     for (int x = 0; x < 8; x++) {
                         int pixel = img.getRGB(bx * 8 + x, by * 8 + y);
-                        colorBlocks[0][by][bx][y * 8 + x] = ((pixel >> 16) & 0xff); // Red channel
-                        colorBlocks[1][by][bx][y * 8 + x] = ((pixel >> 8) & 0xff);  // Green channel
-                        colorBlocks[2][by][bx][y * 8 + x] = (pixel & 0xff);        // Blue channel
+                        colorBlocks[0][by][bx][y * 8 + x] = ((pixel >> 16) & 0xff);
+                        colorBlocks[1][by][bx][y * 8 + x] = ((pixel >> 8) & 0xff);
+                        colorBlocks[2][by][bx][y * 8 + x] = (pixel & 0xff);
                     }
                 }
 
@@ -402,7 +402,6 @@ public class ImageDisplay {
                 }
             }
         }
-        return colorBlocks;
     }
 
     // DCT transformation for a block
@@ -443,7 +442,7 @@ public class ImageDisplay {
     }
 
     // Method to dequantize a block using a uniform quantization level
-    private void dequantizeBlock(double[][] block, int quantizationLevel) {
+    private void dequantizeBlock(double[][] block) {
         int quantizationFactor = (int) Math.pow(2, quantizationLevel);
         for (int u = 0; u < block.length; u++) {
             for (int v = 0; v < block[u].length; v++) {
