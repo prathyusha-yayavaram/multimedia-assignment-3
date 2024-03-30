@@ -110,6 +110,7 @@ public class ImageDisplay {
 
         frame.pack();
         frame.setVisible(true);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
         //Input parameters
         quantizationLevel = Integer.parseInt(args[1]);
@@ -163,18 +164,7 @@ public class ImageDisplay {
                             blockB[i / 8][i % 8] = colorBlocks[2][currentBlockY][currentBlockX][i];
                         }
 
-                        //Dequantize blocks
-                        dequantizeBlock(blockR);
-                        dequantizeBlock(blockG);
-                        dequantizeBlock(blockB);
-
-                        // Apply IDCT
-                        applyIDCTToBlock(blockR);
-                        applyIDCTToBlock(blockG);
-                        applyIDCTToBlock(blockB);
-
-                        // Draw the processed blocks onto the display image
-                        drawBlock(blockR, blockG, blockB, currentBlockX, currentBlockY);
+                        processAndDisplayBlocks(blockR, blockG, blockB);
 
                         //Display block-wise
                         lbIm1.setIcon(new ImageIcon(displayImage));
@@ -192,6 +182,21 @@ public class ImageDisplay {
         }, 0, latency);
     }
 
+    private void processAndDisplayBlocks(double[][] blockR, double[][] blockG, double[][] blockB) {
+        //Dequantize blocks
+        dequantizeBlock(blockR);
+        dequantizeBlock(blockG);
+        dequantizeBlock(blockB);
+
+        // Apply IDCT
+        applyIDCTToBlock(blockR);
+        applyIDCTToBlock(blockG);
+        applyIDCTToBlock(blockB);
+
+        // Draw the processed blocks onto the display image
+        drawBlock(blockR, blockG, blockB, currentBlockX, currentBlockY);
+    }
+
 
     private void displayProgressiveBlocks() {
         Timer timer = new Timer();
@@ -205,7 +210,7 @@ public class ImageDisplay {
                         double[][] blockR = extractBlock(colorBlocks[0], bx, by);
                         double[][] blockG = extractBlock(colorBlocks[1], bx, by);
                         double[][] blockB = extractBlock(colorBlocks[2], bx, by);
-                        processAndDisplayBlock(blockR, blockG, blockB, bx, by, currentCoefficientIndex);
+                        processAndDisplayBlockCoeffWise(blockR, blockG, blockB, bx, by, currentCoefficientIndex);
                     }
                 }
 
@@ -228,8 +233,8 @@ public class ImageDisplay {
         return block;
     }
 
-    private void processAndDisplayBlock(double[][] blockR, double[][] blockG, double[][] blockB,
-                                        int blockX, int blockY, int coeffIndex) {
+    private void processAndDisplayBlockCoeffWise(double[][] blockR, double[][] blockG, double[][] blockB,
+                                                 int blockX, int blockY, int coeffIndex) {
         //Dequantize first
         dequantizeBlock(blockR);
         dequantizeBlock(blockG);
@@ -305,7 +310,7 @@ public class ImageDisplay {
                 frame.repaint();
 
                 currentBitDepth++;
-                if (currentBitDepth > 8) {
+                if (currentBitDepth > 32) {
                     timer.cancel();
                 }
             }
@@ -341,15 +346,23 @@ public class ImageDisplay {
         }
     }
 
-    //TODO: Check if this is right way
     private double approximateCoefficient(double value, int bitDepth) {
-        int levels = (int) Math.pow(2, bitDepth);
-        double maxCoefficientValue = 2048.0;
-        double stepSize = maxCoefficientValue / levels;
+        // Determine the sign of the value to correctly handle negative numbers
+        int sign = value < 0 ? -1 : 1;
+        value = Math.abs(value);
 
-        double quantizedValue = Math.round(value / stepSize) * stepSize;
+        // Start building the value from the most significant bit (MSB)
+        double rebuiltValue = 0;
+        double bitValue = Math.pow(2, 31); // Starting with the MSB
+        for (int i = 0; i < bitDepth; i++) {
+            if (value >= bitValue) {
+                value -= bitValue;
+                rebuiltValue += bitValue;
+            }
+            bitValue /= 2; // Move to the next less significant bit
+        }
 
-        return quantizedValue;
+        return sign * rebuiltValue; // Apply the sign back to the rebuilt value
     }
 
     //Method do draw a given decoded block
@@ -368,7 +381,7 @@ public class ImageDisplay {
         }
     }
 
-    // Method to divide the image into 8x8 blocks for each color channel
+    // Method to encode image by applying DCT and Quantization
     private void encodeImage(BufferedImage img, int quantizationLevel) {
         int blocksX = img.getWidth() / 8;
         int blocksY = img.getHeight() / 8;
@@ -386,7 +399,7 @@ public class ImageDisplay {
                 }
 
                 // Apply DCT and Quantization to each block for each color channel
-                for (int i = 0; i < 3; i++) { // For R, G, and B channels
+                for (int i = 0; i < 3; i++) {
                     double[][] block = new double[8][8];
                     for (int j = 0; j < 64; j++) {
                         block[j / 8][j % 8] = colorBlocks[i][by][bx][j];
@@ -415,8 +428,8 @@ public class ImageDisplay {
                 for (int x = 0; x < size; x++) {
                     for (int y = 0; y < size; y++) {
                         sum += block[x][y] *
-                                Math.cos((2 * x + 1) * u * Math.PI / (2 * size)) *
-                                Math.cos((2 * y + 1) * v * Math.PI / (2 * size));
+                                cosValues[x][u] *
+                                cosValues[y][v];
                     }
                 }
                 double alphaU = (u == 0) ? 1.0 / Math.sqrt(2) : 1.0;
