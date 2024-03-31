@@ -19,7 +19,7 @@ public class ImageDisplay {
     int width = 512;
     int height = 512;
 
-    private double[][][][] colorBlocks;
+    private int[][][][] colorBlocks;
     private int currentBlockX = 0;
     private int currentBlockY = 0;
     private BufferedImage displayImage;
@@ -35,6 +35,8 @@ public class ImageDisplay {
 
     //Precompute values
     private double[][] cosValues = new double[8][8];
+
+
     private void precomputeCosValues() {
         for (int i = 0; i < 8; i++) {
             for (int j = 0; j < 8; j++) {
@@ -116,7 +118,7 @@ public class ImageDisplay {
         quantizationLevel = Integer.parseInt(args[1]);
         deliveryMode = args[2];
         latency = Integer.parseInt(args[3]);
-        if(latency == 0) latency++; //Giving 1 millisecond when latency is 0 as the timer expects positive integer
+        if (latency == 0) latency++; //Giving 1 millisecond when latency is 0 as the timer expects positive integer
 
         //Precompute
         precomputeCosValues();
@@ -155,9 +157,9 @@ public class ImageDisplay {
                 if (currentBlockY < colorBlocks[0].length) {
                     if (currentBlockX < colorBlocks[0][currentBlockY].length) {
                         // Extract the current block for each color channel
-                        double[][] blockR = new double[8][8];
-                        double[][] blockG = new double[8][8];
-                        double[][] blockB = new double[8][8];
+                        int[][] blockR = new int[8][8];
+                        int[][] blockG = new int[8][8];
+                        int[][] blockB = new int[8][8];
                         for (int i = 0; i < 64; i++) {
                             blockR[i / 8][i % 8] = colorBlocks[0][currentBlockY][currentBlockX][i];
                             blockG[i / 8][i % 8] = colorBlocks[1][currentBlockY][currentBlockX][i];
@@ -182,7 +184,7 @@ public class ImageDisplay {
         }, 0, latency);
     }
 
-    private void processAndDisplayBlocks(double[][] blockR, double[][] blockG, double[][] blockB) {
+    private void processAndDisplayBlocks(int[][] blockR, int[][] blockG, int[][] blockB) {
         //Dequantize blocks
         dequantizeBlock(blockR);
         dequantizeBlock(blockG);
@@ -207,9 +209,9 @@ public class ImageDisplay {
                 // Decode and display using increasing number of coefficients
                 for (int by = 0; by < colorBlocks[0].length; by++) {
                     for (int bx = 0; bx < colorBlocks[0][by].length; bx++) {
-                        double[][] blockR = extractBlock(colorBlocks[0], bx, by);
-                        double[][] blockG = extractBlock(colorBlocks[1], bx, by);
-                        double[][] blockB = extractBlock(colorBlocks[2], bx, by);
+                        int[][] blockR = extractBlock(colorBlocks[0], bx, by);
+                        int[][] blockG = extractBlock(colorBlocks[1], bx, by);
+                        int[][] blockB = extractBlock(colorBlocks[2], bx, by);
                         processAndDisplayBlockCoeffWise(blockR, blockG, blockB, bx, by, currentCoefficientIndex);
                     }
                 }
@@ -225,15 +227,15 @@ public class ImageDisplay {
         }, 0, latency);
     }
 
-    private double[][] extractBlock(double[][][] blocks, int bx, int by) {
-        double[][] block = new double[8][8];
+    private int[][] extractBlock(int[][][] blocks, int bx, int by) {
+        int[][] block = new int[8][8];
         for (int i = 0; i < 64; i++) {
             block[i / 8][i % 8] = blocks[by][bx][i];
         }
         return block;
     }
 
-    private void processAndDisplayBlockCoeffWise(double[][] blockR, double[][] blockG, double[][] blockB,
+    private void processAndDisplayBlockCoeffWise(int[][] blockR, int[][] blockG, int[][] blockB,
                                                  int blockX, int blockY, int coeffIndex) {
         //Dequantize first
         dequantizeBlock(blockR);
@@ -254,13 +256,13 @@ public class ImageDisplay {
         drawBlock(blockR, blockG, blockB, blockX, blockY);
     }
 
-    private void zeroOutCoefficientsAfterIndex(double[][] block, int index) {
+    private void zeroOutCoefficientsAfterIndex(int[][] block, int index) {
         // ZigZag Order for a 8x8 Block
         int[][] zigZagOrder = {
-                { 0, 1, 5, 6, 14, 15, 27, 28},
-                { 2, 4, 7, 13, 16, 26, 29, 42},
-                { 3, 8, 12, 17, 25, 30, 41, 43},
-                { 9, 11, 18, 24, 31, 40, 44, 53},
+                {0, 1, 5, 6, 14, 15, 27, 28},
+                {2, 4, 7, 13, 16, 26, 29, 42},
+                {3, 8, 12, 17, 25, 30, 41, 43},
+                {9, 11, 18, 24, 31, 40, 44, 53},
                 {10, 19, 23, 32, 39, 45, 52, 54},
                 {20, 22, 33, 38, 46, 51, 55, 60},
                 {21, 34, 37, 47, 50, 56, 59, 61},
@@ -297,9 +299,9 @@ public class ImageDisplay {
                 // Iterate over all blocks
                 for (int by = 0; by < colorBlocks[0].length; by++) {
                     for (int bx = 0; bx < colorBlocks[0][by].length; bx++) {
-                        double[][] blockR = extractBlock(colorBlocks[0], bx, by);
-                        double[][] blockG = extractBlock(colorBlocks[1], bx, by);
-                        double[][] blockB = extractBlock(colorBlocks[2], bx, by);
+                        int[][] blockR = extractBlock(colorBlocks[0], bx, by);
+                        int[][] blockG = extractBlock(colorBlocks[1], bx, by);
+                        int[][] blockB = extractBlock(colorBlocks[2], bx, by);
 
                         // Process the blocks with the current bit depth
                         processAndDisplayBlockBitwise(blockR, blockG, blockB, bx, by, currentBitDepth);
@@ -317,7 +319,7 @@ public class ImageDisplay {
         }, 0, latency);
     }
 
-    private void processAndDisplayBlockBitwise(double[][] blockR, double[][] blockG, double[][] blockB,
+    private void processAndDisplayBlockBitwise(int[][] blockR, int[][] blockG, int[][] blockB,
                                                int blockX, int blockY, int bitDepth) {
         // First, dequantize
         dequantizeBlock(blockR);
@@ -338,7 +340,7 @@ public class ImageDisplay {
         drawBlock(blockR, blockG, blockB, blockX, blockY);
     }
 
-    private void modifyBlockForBitDepth(double[][] block, int bitDepth) {
+    private void modifyBlockForBitDepth(int[][] block, int bitDepth) {
         for (int i = 0; i < block.length; i++) {
             for (int j = 0; j < block[i].length; j++) {
                 block[i][j] = approximateCoefficient(block[i][j], bitDepth);
@@ -346,33 +348,33 @@ public class ImageDisplay {
         }
     }
 
-    private double approximateCoefficient(double value, int bitDepth) {
-        // Determine the sign of the value to correctly handle negative numbers
-        int sign = value < 0 ? -1 : 1;
-        value = Math.abs(value);
-
-        // Start building the value from the most significant bit (MSB)
-        double rebuiltValue = 0;
-        double bitValue = Math.pow(2, 31); // Starting with the MSB
-        for (int i = 0; i < bitDepth; i++) {
-            if (value >= bitValue) {
-                value -= bitValue;
-                rebuiltValue += bitValue;
-            }
-            bitValue /= 2; // Move to the next less significant bit
+    private int approximateCoefficient(int value, int bitDepth) {
+        boolean isNegative = value < 0;
+        if (isNegative) {
+            value = -value;
         }
-
-        return sign * rebuiltValue; // Apply the sign back to the rebuilt value
+        int rebuiltValue = 0;
+        int bitValue = 1 << 31;
+        for (int i = 0; i < bitDepth; i++) {
+            if ((value & bitValue) != 0) {
+                rebuiltValue |= bitValue;
+            }
+            bitValue >>>= 1;
+        }
+        if (isNegative) {
+            rebuiltValue = -rebuiltValue;
+        }
+        return rebuiltValue;
     }
 
     //Method do draw a given decoded block
-    private void drawBlock(double[][] blockR, double[][] blockG, double[][] blockB, int blockX, int blockY) {
+    private void drawBlock(int[][] blockR, int[][] blockG, int[][] blockB, int blockX, int blockY) {
         for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 8; x++) {
                 // Ensure the pixel value is within the 0-255 range after processing
-                int red = (int) Math.min(Math.max(blockR[y][x], 0), 255);
-                int green = (int) Math.min(Math.max(blockG[y][x], 0), 255);
-                int blue = (int) Math.min(Math.max(blockB[y][x], 0), 255);
+                int red = blockR[y][x];
+                int green = blockG[y][x];
+                int blue = blockB[y][x];
 
                 // Combine the RGB values into a single integer
                 int rgb = (red << 16) | (green << 8) | blue;
@@ -385,7 +387,7 @@ public class ImageDisplay {
     private void encodeImage(BufferedImage img, int quantizationLevel) {
         int blocksX = img.getWidth() / 8;
         int blocksY = img.getHeight() / 8;
-        colorBlocks = new double[3][blocksY][blocksX][64];
+        colorBlocks = new int[3][blocksY][blocksX][64];
 
         for (int by = 0; by < blocksY; by++) {
             for (int bx = 0; bx < blocksX; bx++) {
@@ -400,7 +402,7 @@ public class ImageDisplay {
 
                 // Apply DCT and Quantization to each block for each color channel
                 for (int i = 0; i < 3; i++) {
-                    double[][] block = new double[8][8];
+                    int[][] block = new int[8][8];
                     for (int j = 0; j < 64; j++) {
                         block[j / 8][j % 8] = colorBlocks[i][by][bx][j];
                     }
@@ -418,7 +420,7 @@ public class ImageDisplay {
     }
 
     // DCT transformation for a block
-    private void applyDCTToBlock(double[][] block) {
+    private void applyDCTToBlock(int[][] block) {
         int size = 8; // Block size for DCT
         double[][] temp = new double[size][size];
 
@@ -438,14 +440,15 @@ public class ImageDisplay {
             }
         }
 
-        // Copy the transformed block back to the original block array
-        for (int i = 0; i < size; i++) {
-            System.arraycopy(temp[i], 0, block[i], 0, size);
+        for (int u = 0; u < size; u++) {
+            for (int v = 0; v < size; v++) {
+                block[u][v] = (int)temp[u][v];
+            }
         }
     }
 
     // Method to quantize a block using a uniform quantization table
-    private void quantizeBlock(double[][] block, int quantizationLevel) {
+    private void quantizeBlock(int[][] block, int quantizationLevel) {
         int quantizationFactor = (int) Math.pow(2, quantizationLevel);
         for (int u = 0; u < block.length; u++) {
             for (int v = 0; v < block[u].length; v++) {
@@ -455,7 +458,7 @@ public class ImageDisplay {
     }
 
     // Method to dequantize a block using a uniform quantization level
-    private void dequantizeBlock(double[][] block) {
+    private void dequantizeBlock(int[][] block) {
         int quantizationFactor = (int) Math.pow(2, quantizationLevel);
         for (int u = 0; u < block.length; u++) {
             for (int v = 0; v < block[u].length; v++) {
@@ -465,7 +468,7 @@ public class ImageDisplay {
     }
 
     // Method to apply IDCT to a block (8x8)
-    private void applyIDCTToBlock(double[][] block) {
+    private void applyIDCTToBlock(int[][] block) {
         int size = 8;
         double[][] temp = new double[size][size];
         double cu, cv, sum;
@@ -485,10 +488,10 @@ public class ImageDisplay {
                 temp[x][y] = sum / 4;
             }
         }
-
-        // Copy the transformed block back to the original block array
-        for (int i = 0; i < size; i++) {
-            System.arraycopy(temp[i], 0, block[i], 0, size);
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                block[x][y] = (int) Math.min(Math.max(temp[x][y], 0), 255);
+            }
         }
     }
 
